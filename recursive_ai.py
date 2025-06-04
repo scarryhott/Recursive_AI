@@ -1,10 +1,17 @@
 import inspect
 import subprocess
+import hashlib
 from dataclasses import dataclass, field
 from typing import List, Dict
 
 import torch
 from torch import nn
+
+
+def get_code_hash() -> str:
+    """Return sha256 hash of this file for provenance."""
+    with open(__file__, "r") as f:
+        return hashlib.sha256(f.read().encode()).hexdigest()
 
 @dataclass
 class SemanticNode:
@@ -12,6 +19,7 @@ class SemanticNode:
     truth_score: float
     reasoning: str
     mutation: str
+    code_hash: str
     children: List["SemanticNode"] = field(default_factory=list)
 
 
@@ -20,6 +28,17 @@ class RecursiveAI:
         self.belief = belief
         self.truth_score = truth_score
         self.history: List[SemanticNode] = []
+
+    def mutate_reasoning(self, code: str) -> str:
+        """A toy mutation that tweaks how the class describes analysis."""
+        return code.replace("Analyzing", "Reflecting on")
+
+    def run_new_version(self):
+        """Spawn a new process running the mutated file."""
+        try:
+            subprocess.Popen(["python", "RecursiveAI_mutated.py"])
+        except Exception as e:
+            print(f"Failed to run mutated version: {e}")
 
     def save_version(self, message: str = "auto-commit"):
         try:
@@ -44,11 +63,21 @@ class RecursiveAI:
         new_belief = f"{self.belief} => self-evolved"
         mutation = f"truth_score {self.truth_score:.2f} -> {new_truth:.2f}"
         print(f"Rewriting self with {mutation}")
+
+        code_hash = get_code_hash()
+        mutated_code = self.mutate_reasoning(inspect.getsource(self.__class__))
+        try:
+            with open("RecursiveAI_mutated.py", "w") as f:
+                f.write(mutated_code)
+        except Exception as e:
+            print(f"Failed to write mutated code: {e}")
+
         node = SemanticNode(
             belief=self.belief,
             truth_score=self.truth_score,
             reasoning=self.analyze_self(),
             mutation=mutation,
+            code_hash=code_hash,
         )
         self.history.append(node)
         return RecursiveAI(new_belief, new_truth)
@@ -57,24 +86,14 @@ class RecursiveAI:
         texts = [f"{n.belief} {n.reasoning} {n.mutation}" for n in self.history]
         if not texts:
             return None
-        # Very small char-level RNN for demonstration
-        vocab = sorted(set(" ".join(texts)))
-        stoi = {ch: i for i, ch in enumerate(vocab)}
-        itos = {i: ch for ch, i in stoi.items()}
-        encoded = [torch.tensor([stoi[c] for c in t], dtype=torch.long) for t in texts]
-        model = nn.RNN(len(vocab), 8, batch_first=True)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-        loss_fn = nn.CrossEntropyLoss()
-        for e in range(2):
-            for seq in encoded:
-                x = nn.functional.one_hot(seq[:-1], num_classes=len(vocab)).float().unsqueeze(0)
-                y = seq[1:].unsqueeze(0)
-                out, _ = model(x)
-                loss = loss_fn(out.squeeze(0), y)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-        return model, stoi, itos
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+            embeddings = model.encode(texts)
+            return model, embeddings
+        except Exception as e:
+            print(f"Embedding training failed: {e}")
+            return None
 
     def run_cycle(self, steps: int = 5):
         ai = self
@@ -84,6 +103,7 @@ class RecursiveAI:
             ai.analyze_self()
             ai = ai.evolve()
         ai.train_model()
+        ai.run_new_version()
         return ai
 
 if __name__ == "__main__":
