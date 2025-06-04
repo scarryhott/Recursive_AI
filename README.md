@@ -6,6 +6,13 @@ modified belief, records each cycle in a semantic tree, then trains a tiny
 character-level RNN on the collected traces. Each run can optionally commit the
 updated code to Git via `save_version()`.
 
+## New Features
+
+- Belief evolution is tracked in a `networkx` graph exported to `belief_graph.graphml`.
+- `evolve()` executes unit tests before applying changes.
+- Optional OpenAI integration provides advanced reasoning if an API key is set.
+- A simple Flask dashboard (`dashboard.py`) exposes the belief history.
+
 ## Updates
 
 - Each `SemanticNode` now records a SHA256 hash of the source code used in that
